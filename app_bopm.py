@@ -117,6 +117,15 @@ class App(ctk.CTk):
         self.frame_search = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
         self.frame_search.pack(fill="x", pady=(0, 15))
         
+        self.lbl_conexao = ctk.CTkLabel(
+            self.frame_search, 
+            text="🔴 Offline", 
+            font=("Arial", 9),
+            text_color="red",
+            width=80
+        )
+        self.lbl_conexao.pack(side="left", padx=(0, 5))
+        
         self.entry_search = ctk.CTkEntry(self.frame_search, placeholder_text="Número BOPM")
         self.entry_search.pack(side="left", fill="x", expand=True, padx=(0, 5))
         
@@ -204,12 +213,23 @@ class App(ctk.CTk):
             text="📋 Copiar", 
             command=self.copiar_texto
         )
-        self.btn_copiar.pack(side="right", expand=True, fill="x", padx=(5, 0))
+        self.btn_copiar.pack(side="right", fill="x", padx=(5, 0), expand=True)
+        
+        self.btn_limpar_output = ctk.CTkButton(
+            self.frame_actions,
+            text="🧹 Limpar",
+            command=self.limpar_output,
+            fg_color="gray",
+            width=80
+        )
+        self.btn_limpar_output.pack(side="right", padx=(5, 0))
         
         self.lbl_status = ctk.CTkLabel(self.frame_output, text="", text_color="gray", font=("Arial", 10))
         self.lbl_status.grid(row=3, column=0, pady=(0, 5))
         
         self.configurar_atalhos()
+        self.atualizar_status_conexao()
+        self.carregar_ultimos_bopms()
         
         logger.info("Interface inicializada")
     
@@ -223,6 +243,29 @@ class App(ctk.CTk):
         self.bind("<F1>", lambda e: self.mostrar_atalhos())
         self.entry_search.bind("<Return>", lambda e: self.buscar_no_banco())
 
+    def atualizar_status_conexao(self):
+        if self.backend.db.conectado:
+            self.lbl_conexao.configure(text="🟪 MongoDB", text_color="green")
+        else:
+            self.lbl_conexao.configure(text="🔴 Offline", text_color="red")
+    
+    def limpar_output(self):
+        self.txt_output.delete("1.0", "end")
+        self.lbl_status.configure(text="Texto limpo", text_color="gray")
+    
+    def carregar_ultimos_bopms(self):
+        try:
+            lista, msg = self.backend.listar_bopms_db(5)
+            if lista and len(lista) > 0:
+                texto_info = f"ℹ️ Últimos {len(lista)} BOPMs: "
+                numeros = [doc.get('numero_bopm', 'N/A') for doc in lista[:3]]
+                texto_info += ", ".join(numeros)
+                if len(lista) > 3:
+                    texto_info += "..."
+                self.lbl_status.configure(text=texto_info, text_color="#3498DB")
+        except Exception as e:
+            logger.debug(f"Erro ao carregar últimos BOPMs: {e}")
+    
     def criar_input(self, texto, nome_var):
         frame = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
         frame.pack(fill="x", pady=(5, 0))
@@ -676,6 +719,21 @@ BOPM #{dados['numero']} ({dados['infrator']})
             dados = self.coletar_inputs()
             texto_final_atual = self.txt_output.get("1.0", "end-1c")
             
+            if not dados['numero']:
+                messagebox.showwarning("Aviso", "Número do BOPM é obrigatório", parent=self)
+                return
+            
+            doc_existente, _ = self.backend.buscar_bopm_db(dados['numero'])
+            if doc_existente:
+                resposta = messagebox.askyesnocancel(
+                    "BOPM Existente",
+                    f"BOPM #{dados['numero']} já existe.\n\nDeseja sobrescrever?",
+                    parent=self
+                )
+                if resposta is None or resposta is False:
+                    self.lbl_status.configure(text="Salvamento cancelado", text_color="gray")
+                    return
+            
             logger.info(f"Tentando salvar BOPM #{dados.get('numero', 'N/A')}")
             
             sucesso, msg = self.backend.salvar_bopm_db(dados, texto_final_atual)
@@ -685,6 +743,7 @@ BOPM #{dados['numero']} ({dados['infrator']})
             if sucesso:
                 logger.info(f"✓ BOPM #{dados['numero']} salvo")
                 messagebox.showinfo("Sucesso", "BOPM salvo com sucesso!", parent=self)
+                self.carregar_ultimos_bopms()
             else:
                 logger.warning(f"✗ Falha ao salvar: {msg}")
                 messagebox.showerror("Erro", f"Falha ao salvar:\n{msg}", parent=self)
