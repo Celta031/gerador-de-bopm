@@ -1,6 +1,7 @@
 import logging
 import threading
 from datetime import datetime
+from tkinter import messagebox
 import customtkinter as ctk
 from config import Config
 from database import BOPMDatabase
@@ -61,6 +62,25 @@ class BOPMBackend:
         """Lista BOPMs recentes"""
         return self.db.listar_bopms(limite)
     
+    def buscar_avancada(self, filtros: dict, limite: int = 50) -> tuple[list | None, str]:
+        """Busca avançada com filtros"""
+        try:
+            query = {}
+            if filtros.get('numero'):
+                query['numero_bopm'] = {'$regex': filtros['numero'], '$options': 'i'}
+            if filtros.get('infrator'):
+                query['infrator'] = {'$regex': filtros['infrator'], '$options': 'i'}
+            if filtros.get('natureza'):
+                query['natureza'] = {'$regex': filtros['natureza'], '$options': 'i'}
+            if filtros.get('motorista'):
+                query['equipe.motorista'] = {'$regex': filtros['motorista'], '$options': 'i'}
+            
+            cursor = self.db.collection.find(query).sort('data_atualizacao', -1).limit(limite)
+            resultados = list(cursor)
+            return resultados, f"{len(resultados)} resultados"
+        except Exception as e:
+            return None, f"Erro na busca: {str(e)}"
+    
     def gerar_texto_ia(self, relato_bruto: str, natureza: str) -> str:
         """Gera texto formal via IA (com cache)"""
         return self.ai_service.gerar_texto_formal(relato_bruto, natureza)
@@ -85,6 +105,7 @@ class App(ctk.CTk):
         # Auto-save timer
         self.autosave_timer = None
         self.autosave_ativo = False
+        self.validation_labels = {}
         
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -96,7 +117,7 @@ class App(ctk.CTk):
         self.frame_search = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
         self.frame_search.pack(fill="x", pady=(0, 15))
         
-        self.entry_search = ctk.CTkEntry(self.frame_search, placeholder_text="Buscar Nº BOPM")
+        self.entry_search = ctk.CTkEntry(self.frame_search, placeholder_text="Número BOPM")
         self.entry_search.pack(side="left", fill="x", expand=True, padx=(0, 5))
         
         self.btn_search = ctk.CTkButton(self.frame_search, text="🔍 Buscar", width=60, command=self.buscar_no_banco)
@@ -117,16 +138,19 @@ class App(ctk.CTk):
         self.criar_input("Procedimentos", "entry_proc")
         self.criar_input("Assinatura", "entry_ass")
 
-        ctk.CTkLabel(self.frame_inputs, text="Rascunho do Relato:", anchor="w").pack(fill="x", pady=(10, 0))
+        frame_rascunho = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
+        frame_rascunho.pack(fill="x", pady=(10, 0))
+        ctk.CTkLabel(frame_rascunho, text="Rascunho do Relato:", anchor="w").pack(side="left")
+        self.lbl_contador = ctk.CTkLabel(frame_rascunho, text="0 caracteres", anchor="e", text_color="gray")
+        self.lbl_contador.pack(side="right")
+        
         self.txt_relato = ctk.CTkTextbox(self.frame_inputs, height=150)
         self.txt_relato.pack(fill="x", pady=5)
-        
-        # Bind para auto-save quando digitar no rascunho
-        self.txt_relato.bind("<KeyRelease>", self.iniciar_autosave_timer)
+        self.txt_relato.bind("<KeyRelease>", self.atualizar_contador_e_autosave)
 
         self.btn_gerar = ctk.CTkButton(
             self.frame_inputs, 
-            text="GERAR / ATUALIZAR TEMPLATE", 
+            text="🤖 Gerar IA (Ctrl+G)", 
             command=self.iniciar_geracao, 
             height=40, 
             fg_color="green"
@@ -136,12 +160,21 @@ class App(ctk.CTk):
         # === NOVO: Botão de Histórico ===
         self.btn_historico = ctk.CTkButton(
             self.frame_inputs,
-            text="📋 Ver Histórico",
+            text="📋 Histórico",
             command=self.abrir_historico,
             height=35,
-            fg_color="#9B59B6"  # Roxo
+            fg_color="#9B59B6"
         )
         self.btn_historico.pack(fill="x", pady=(0, 10))
+        
+        self.btn_ajuda = ctk.CTkButton(
+            self.frame_inputs,
+            text="⌨️ Atalhos (F1)",
+            command=self.mostrar_atalhos,
+            height=30,
+            fg_color="#3498DB"
+        )
+        self.btn_ajuda.pack(fill="x", pady=(0, 10))
 
         # --- FRAME DIREITO (Output) ---
         self.frame_output = ctk.CTkFrame(self)
@@ -160,7 +193,7 @@ class App(ctk.CTk):
         
         self.btn_salvar_db = ctk.CTkButton(
             self.frame_actions, 
-            text="💾 Salvar no Banco", 
+            text="💾 Salvar (Ctrl+S)", 
             command=self.salvar_tudo, 
             fg_color="#D35400"
         )
@@ -176,13 +209,77 @@ class App(ctk.CTk):
         self.lbl_status = ctk.CTkLabel(self.frame_output, text="", text_color="gray", font=("Arial", 10))
         self.lbl_status.grid(row=3, column=0, pady=(0, 5))
         
+        self.configurar_atalhos()
+        
         logger.info("Interface inicializada")
+    
+    def configurar_atalhos(self):
+        self.bind("<Control-s>", lambda e: self.salvar_tudo())
+        self.bind("<Control-g>", lambda e: self.iniciar_geracao())
+        self.bind("<Control-n>", lambda e: self.limpar_campos())
+        self.bind("<Control-f>", lambda e: self.entry_search.focus())
+        self.bind("<Control-h>", lambda e: self.abrir_busca_avancada())
+        self.bind("<Escape>", lambda e: self.limpar_campos())
+        self.bind("<F1>", lambda e: self.mostrar_atalhos())
+        self.entry_search.bind("<Return>", lambda e: self.buscar_no_banco())
 
     def criar_input(self, texto, nome_var):
-        ctk.CTkLabel(self.frame_inputs, text=texto, anchor="w").pack(fill="x", pady=(5, 0))
+        frame = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
+        frame.pack(fill="x", pady=(5, 0))
+        
+        label_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        label_frame.pack(fill="x")
+        ctk.CTkLabel(label_frame, text=texto, anchor="w").pack(side="left")
+        
+        validation_lbl = ctk.CTkLabel(label_frame, text="", anchor="e", width=20)
+        validation_lbl.pack(side="right")
+        self.validation_labels[nome_var] = validation_lbl
+        
         entry = ctk.CTkEntry(self.frame_inputs)
         entry.pack(fill="x", pady=(0, 5))
+        entry.bind("<KeyRelease>", lambda e: self.validar_campo_tempo_real(nome_var))
         setattr(self, nome_var, entry)
+    
+    def validar_campo_tempo_real(self, nome_campo):
+        entry = getattr(self, nome_campo)
+        valor = entry.get().strip()
+        label = self.validation_labels.get(nome_campo)
+        
+        if not label:
+            return
+        
+        validacoes = {
+            'entry_num': (BOPMValidator.validar_numero_bopm, True),
+            'entry_infrator': (lambda v: BOPMValidator.validar_texto(v, 'Infrator', True), True),
+            'entry_natureza': (lambda v: BOPMValidator.validar_texto(v, 'Natureza', True), True),
+            'entry_mot': (lambda v: BOPMValidator.validar_texto(v, 'Motorista', True), True),
+            'entry_enc': (lambda v: BOPMValidator.validar_texto(v, 'Encarregado', True), True),
+        }
+        
+        if nome_campo in validacoes:
+            validador, obrigatorio = validacoes[nome_campo]
+            if valor or obrigatorio:
+                valido, msg = validador(valor)
+                if valido:
+                    label.configure(text="✓", text_color="green")
+                else:
+                    label.configure(text="✗", text_color="red")
+            else:
+                label.configure(text="")
+    
+    def atualizar_contador_e_autosave(self, event=None):
+        texto = self.txt_relato.get("1.0", "end-1c")
+        count = len(texto)
+        self.lbl_contador.configure(text=f"{count} caracteres")
+        
+        if count < Config.MIN_RASCUNHO_LENGTH:
+            self.lbl_contador.configure(text_color="red")
+        elif count > Config.MAX_RASCUNHO_LENGTH:
+            self.lbl_contador.configure(text_color="orange")
+        else:
+            self.lbl_contador.configure(text_color="green")
+        
+        self.iniciar_autosave_timer(event)
     
     def formatar_bopm_template(self, dados: dict, relato_final: str) -> str:
         """
@@ -225,6 +322,100 @@ BOPM #{dados['numero']} ({dados['infrator']})
 **Assinatura do Responsável:** {dados.get('assinatura', '')}"""
 
     # --- LÓGICA DE COLETA DE DADOS ---
+    def mostrar_atalhos(self):
+        janela = ctk.CTkToplevel(self)
+        janela.title("⌨️ Atalhos de Teclado")
+        janela.geometry("500x500")
+        janela.transient(self)
+        janela.grab_set()
+        
+        frame = ctk.CTkFrame(janela)
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        ctk.CTkLabel(frame, text="⌨️ Atalhos de Teclado", font=("Arial", 18, "bold")).pack(pady=15)
+        
+        scroll_frame = ctk.CTkScrollableFrame(frame)
+        scroll_frame.pack(fill="both", expand=True, pady=10)
+        
+        atalhos = [
+            ("Ctrl+S", "Salvar BOPM no banco"),
+            ("Ctrl+G", "Gerar texto com IA"),
+            ("Ctrl+N", "Limpar todos os campos"),
+            ("Ctrl+F", "Focar no campo de busca"),
+            ("Ctrl+H", "Abrir busca avançada"),
+            ("Esc", "Limpar campos"),
+            ("Enter", "Buscar (quando no campo de busca)"),
+            ("F1", "Mostrar esta ajuda")
+        ]
+        
+        for tecla, descricao in atalhos:
+            item_frame = ctk.CTkFrame(scroll_frame, fg_color="#34495E")
+            item_frame.pack(fill="x", pady=3, padx=5)
+            
+            ctk.CTkLabel(
+                item_frame, 
+                text=tecla, 
+                font=("Consolas", 13, "bold"),
+                width=100,
+                anchor="w"
+            ).pack(side="left", padx=10, pady=8)
+            
+            ctk.CTkLabel(
+                item_frame, 
+                text=descricao,
+                anchor="w"
+            ).pack(side="left", padx=10, pady=8, fill="x", expand=True)
+        
+        frame_info = ctk.CTkFrame(frame, fg_color="#2C3E50")
+        frame_info.pack(fill="x", pady=10)
+        
+        info_text = """💡 Dicas:
+• Use atalhos para aumentar sua produtividade
+• Observe os indicadores ✓/✗ ao preencher campos
+• Contador de caracteres indica status do rascunho"""
+        
+        ctk.CTkLabel(
+            frame_info, 
+            text=info_text,
+            font=("Arial", 10),
+            justify="left",
+            anchor="w"
+        ).pack(padx=15, pady=10)
+        
+        ctk.CTkButton(
+            frame,
+            text="Fechar",
+            command=janela.destroy,
+            fg_color="gray",
+            width=150
+        ).pack(pady=10)
+    
+    def limpar_campos(self):
+        confirmacao = messagebox.askyesno(
+            "Limpar Campos",
+            "Deseja realmente limpar todos os campos?",
+            parent=self
+        )
+        if confirmacao:
+            self.entry_num.delete(0, "end")
+            self.entry_infrator.delete(0, "end")
+            self.entry_natureza.delete(0, "end")
+            self.entry_mot.delete(0, "end")
+            self.entry_enc.delete(0, "end")
+            self.entry_aux1.delete(0, "end")
+            self.entry_aux2.delete(0, "end")
+            self.entry_mat.delete(0, "end")
+            self.entry_proc.delete(0, "end")
+            self.entry_ass.delete(0, "end")
+            self.txt_relato.delete("1.0", "end")
+            self.txt_output.delete("1.0", "end")
+            self.entry_search.delete(0, "end")
+            for label in self.validation_labels.values():
+                label.configure(text="")
+            self.lbl_contador.configure(text="0 caracteres", text_color="gray")
+            self.lbl_status.configure(text="Campos limpos", text_color="gray")
+            logger.info("Campos limpos")
+    
     def coletar_inputs(self):
         return {
             'numero': self.entry_num.get(),
@@ -307,23 +498,95 @@ BOPM #{dados['numero']} ({dados['infrator']})
 
     # --- ACTIONS ---
     def buscar_no_banco(self):
-        """Busca BOPM por número"""
         numero = self.entry_search.get().strip()
         if not numero:
             self.lbl_status.configure(text="Digite um número para buscar", text_color="yellow")
             return
         
-        logger.info(f"Buscando BOPM #{numero}")
-        doc, msg = self.backend.buscar_bopm_db(numero)
+        try:
+            logger.info(f"Buscando BOPM #{numero}")
+            doc, msg = self.backend.buscar_bopm_db(numero)
+            
+            if doc:
+                self.popular_inputs(doc)
+            else:
+                self.lbl_status.configure(text=msg, text_color="red")
+                logger.warning(msg)
+        except Exception as e:
+            logger.error(f"Erro ao buscar: {str(e)}")
+            messagebox.showerror("Erro", f"Erro ao buscar BOPM:\n{str(e)}", parent=self)
+            self.lbl_status.configure(text="Erro na busca", text_color="red")
+    
+    def abrir_busca_avancada(self):
+        janela = ctk.CTkToplevel(self)
+        janela.title("Busca Avançada")
+        janela.geometry("600x400")
+        janela.transient(self)
+        janela.grab_set()
         
-        if doc:
-            self.popular_inputs(doc)
-        else:
-            self.lbl_status.configure(text=msg, text_color="red")
-            logger.warning(msg)
+        frame = ctk.CTkFrame(janela)
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        ctk.CTkLabel(frame, text="Busca Avançada", font=("Arial", 16, "bold")).pack(pady=10)
+        
+        filtros = {}
+        
+        for campo, label in [("numero", "Número BOPM"), ("infrator", "Infrator"), 
+                             ("natureza", "Natureza"), ("motorista", "Motorista")]:
+            ctk.CTkLabel(frame, text=label, anchor="w").pack(fill="x", pady=(10, 0))
+            entry = ctk.CTkEntry(frame)
+            entry.pack(fill="x")
+            filtros[campo] = entry
+        
+        def executar_busca():
+            filtros_valores = {k: v.get().strip() for k, v in filtros.items() if v.get().strip()}
+            if not filtros_valores:
+                messagebox.showwarning("Aviso", "Preencha ao menos um filtro", parent=janela)
+                return
+            
+            resultados, msg = self.backend.buscar_avancada(filtros_valores, 50)
+            if resultados:
+                janela.destroy()
+                self.exibir_resultados_busca(resultados)
+            else:
+                messagebox.showerror("Erro", msg, parent=janela)
+        
+        ctk.CTkButton(frame, text="Buscar", command=executar_busca).pack(pady=20)
+        ctk.CTkButton(frame, text="Cancelar", command=janela.destroy, fg_color="gray").pack()
+    
+    def exibir_resultados_busca(self, resultados):
+        janela = ctk.CTkToplevel(self)
+        janela.title(f"Resultados ({len(resultados)})")
+        janela.geometry("800x600")
+        janela.transient(self)
+        
+        frame = ctk.CTkFrame(janela)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        ctk.CTkLabel(frame, text=f"📋 {len(resultados)} resultados encontrados", 
+                    font=("Arial", 16, "bold")).pack(pady=10)
+        
+        scroll_frame = ctk.CTkScrollableFrame(frame)
+        scroll_frame.pack(fill="both", expand=True, pady=10)
+        
+        for doc in resultados:
+            item_frame = ctk.CTkFrame(scroll_frame, fg_color="#34495E")
+            item_frame.pack(fill="x", pady=2)
+            
+            numero = doc.get('numero_bopm', 'N/A')
+            infrator = doc.get('infrator', 'N/A')
+            natureza = doc.get('natureza', 'N/A')
+            
+            ctk.CTkLabel(item_frame, text=numero, width=100).pack(side="left", padx=5)
+            ctk.CTkLabel(item_frame, text=infrator[:30], width=200, anchor="w").pack(side="left", padx=5)
+            ctk.CTkLabel(item_frame, text=natureza[:30], width=300, anchor="w").pack(side="left", padx=5)
+            
+            ctk.CTkButton(item_frame, text="Carregar", width=80,
+                         command=lambda n=numero: self.carregar_da_lista(n, janela)).pack(side="right", padx=5)
+        
+        ctk.CTkButton(frame, text="Fechar", command=janela.destroy, fg_color="gray").pack(pady=10)
     
     def abrir_historico(self):
-        """Abre janela com histórico de BOPMs"""
         logger.info("Abrindo histórico")
         
         # Busca lista de BOPMs
@@ -409,56 +672,57 @@ BOPM #{dados['numero']} ({dados['infrator']})
             self.lbl_status.configure(text=msg, text_color="red")
 
     def salvar_tudo(self):
-        """Salva BOPM com validação"""
-        dados = self.coletar_inputs()
-        texto_final_atual = self.txt_output.get("1.0", "end-1c")
-        
-        logger.info(f"Tentando salvar BOPM #{dados.get('numero', 'N/A')}")
-        
-        sucesso, msg = self.backend.salvar_bopm_db(dados, texto_final_atual)
-        cor = "#58D68D" if sucesso else "red"
-        self.lbl_status.configure(text=msg, text_color=cor)
-        
-        if sucesso:
-            logger.info(f"✓ BOPM #{dados['numero']} salvo")
-        else:
-            logger.warning(f"✗ Falha ao salvar: {msg}")
+        try:
+            dados = self.coletar_inputs()
+            texto_final_atual = self.txt_output.get("1.0", "end-1c")
+            
+            logger.info(f"Tentando salvar BOPM #{dados.get('numero', 'N/A')}")
+            
+            sucesso, msg = self.backend.salvar_bopm_db(dados, texto_final_atual)
+            cor = "#58D68D" if sucesso else "red"
+            self.lbl_status.configure(text=msg, text_color=cor)
+            
+            if sucesso:
+                logger.info(f"✓ BOPM #{dados['numero']} salvo")
+                messagebox.showinfo("Sucesso", "BOPM salvo com sucesso!", parent=self)
+            else:
+                logger.warning(f"✗ Falha ao salvar: {msg}")
+                messagebox.showerror("Erro", f"Falha ao salvar:\n{msg}", parent=self)
+        except Exception as e:
+            logger.error(f"Exceção ao salvar: {str(e)}")
+            messagebox.showerror("Erro Crítico", f"Erro inesperado:\n{str(e)}", parent=self)
+            self.lbl_status.configure(text="Erro ao salvar", text_color="red")
 
     def iniciar_geracao(self):
-        """Inicia geração de texto pela IA"""
-        dados = self.coletar_inputs()
-        
-        # Validação do rascunho
-        valido, msg = BOPMValidator.validar_rascunho(dados['rascunho'])
-        if not valido:
-            self.lbl_status.configure(text=msg, text_color="yellow")
-            logger.warning(f"Validação falhou: {msg}")
-            return
+        try:
+            dados = self.coletar_inputs()
+            
+            valido, msg = BOPMValidator.validar_rascunho(dados['rascunho'])
+            if not valido:
+                self.lbl_status.configure(text=msg, text_color="yellow")
+                messagebox.showwarning("Validação", msg, parent=self)
+                logger.warning(f"Validação falhou: {msg}")
+                return
 
-        logger.info("Iniciando geração de texto pela IA")
-        self.btn_gerar.configure(state="disabled", text="⏳ Processando IA...")
-        threading.Thread(target=self.executar_backend, args=(dados,), daemon=True).start()
+            logger.info("Iniciando geração de texto pela IA")
+            self.btn_gerar.configure(state="disabled", text="⏳ Processando IA...")
+            threading.Thread(target=self.executar_backend, args=(dados,), daemon=True).start()
+        except Exception as e:
+            logger.error(f"Erro ao iniciar geração: {str(e)}")
+            messagebox.showerror("Erro", f"Erro ao iniciar geração:\n{str(e)}", parent=self)
+            self.lbl_status.configure(text="Erro", text_color="red")
 
     def executar_backend(self, dados):
-        """Executa processamento em background"""
         try:
-            # 1. Gera texto IA
             relato_formal = self.backend.gerar_texto_ia(dados['rascunho'], dados['natureza'])
-            
-            # 2. Formata Template
             texto_completo = self.formatar_bopm_template(dados, relato_formal)
-            
             self.after(0, lambda: self.atualizar_ui_pos_processamento(texto_completo))
         except Exception as e:
-            logger.error(f"Erro no processamento: {str(e)}")
-            self.after(0, lambda: self.lbl_status.configure(
-                text=f"Erro: {str(e)}", 
-                text_color="red"
-            ))
-            self.after(0, lambda: self.btn_gerar.configure(
-                state="normal", 
-                text="GERAR / ATUALIZAR TEMPLATE"
-            ))
+            logger.error(f"Erro no processamento: {str(e)}", exc_info=True)
+            erro_msg = f"Erro ao gerar texto:\n{str(e)}"
+            self.after(0, lambda: messagebox.showerror("Erro de Processamento", erro_msg, parent=self))
+            self.after(0, lambda: self.lbl_status.configure(text="Erro na IA", text_color="red"))
+            self.after(0, lambda: self.btn_gerar.configure(state="normal", text="GERAR / ATUALIZAR TEMPLATE"))
 
     def atualizar_ui_pos_processamento(self, texto):
         """Atualiza UI após processamento"""

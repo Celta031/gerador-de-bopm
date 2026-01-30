@@ -10,6 +10,11 @@ Este é um projeto desenvolvido em Python utilizando a biblioteca **CustomTkinte
 - **Armazenamento em banco de dados MongoDB**: Salva automaticamente os BOPMs gerados.
 - **Histórico de ocorrências**: Consulta e recuperação de registros anteriores.
 - **Persistência de dados**: Backup automático de todas as operações realizadas.
+- **🆕 Validação em tempo real**: Indicadores visuais ✓/✗ nos campos.
+- **🆕 Atalhos de teclado**: Ctrl+S, Ctrl+G, Ctrl+N, Ctrl+F, Ctrl+H.
+- **🆕 Busca avançada**: Filtros múltiplos para localizar BOPMs.
+- **🆕 Contador de caracteres**: Monitor em tempo real do rascunho.
+- **🆕 Tratamento de erros robusto**: Dialogs informativos e recuperação de falhas.
 
 ## 🛠️ Tecnologias Utilizadas
 - **Python 3.x**
@@ -60,7 +65,18 @@ Antes de começar, você precisará ter o Python instalado e uma chave de API do
 - ✅ **Logging estruturado** para debug
 - ✅ **Arquitetura modular** com separação de responsabilidades
 
-> 📖 Para detalhes completos, consulte [MELHORIAS.md](MELHORIAS.md)
+### 🔥 Novidades da v3.0
+- ✅ **Validação em tempo real** com indicadores visuais (✓/✗)
+- ✅ **Atalhos de teclado** (Ctrl+S, Ctrl+G, Ctrl+H, etc)
+- ✅ **Busca avançada** com filtros múltiplos
+- ✅ **Contador de caracteres** no rascunho
+- ✅ **Tratamento de exceções** robusto com dialogs
+- ✅ **Performance otimizada** em consultas e queries
+
+> 📖 Para detalhes completos:
+> - v2.0: [MELHORIAS.md](MELHORIAS.md)
+> - v3.0: [CHANGELOG_v3.md](CHANGELOG_v3.md)
+> - Atalhos: [ATALHOS.md](ATALHOS.md)
 
 ## ⚖️ Licença
 Este projeto foi desenvolvido para fins de estudo e automação de processos internos.
