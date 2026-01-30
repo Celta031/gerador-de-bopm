@@ -41,10 +41,26 @@ Antes de começar, você precisará ter o Python instalado e uma chave de API do
    > **Nota**: Para obter a connection string do MongoDB, crie uma conta gratuita em [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) e configure um cluster.
 
 ## 📂 Estrutura do Projeto
-- `app_bopm.py`: Código principal da aplicação e interface.
+- `app_bopm.py`: Interface gráfica principal (CustomTkinter).
+- `config.py`: Configurações centralizadas e constantes.
+- `validators.py`: Validação de inputs e sanitização de dados.
+- `database.py`: Gerenciamento de operações MongoDB.
+- `ai_service.py`: Integração com Google Gemini e sistema de cache.
+- `debug_models.py`: Script para testar conexão e listar modelos disponíveis.
 - `.env`: Armazenamento da API Key (não enviado ao git).
 - `.gitignore`: Arquivos ignorados pelo controle de versão.
-- `debug_models.py`: Script para testar a conexão e listar modelos disponíveis.
+- `bopm_app.log`: Arquivo de logs da aplicação.
+- `MELHORIAS.md`: Documentação detalhada das melhorias implementadas.
+
+### 🆕 Novidades da v2.0
+- ✅ **Validação de inputs** antes de salvar
+- ✅ **Sistema de cache** para chamadas à IA
+- ✅ **Histórico de BOPMs** com interface de listagem
+- ✅ **Auto-save** automático a cada 30 segundos
+- ✅ **Logging estruturado** para debug
+- ✅ **Arquitetura modular** com separação de responsabilidades
+
+> 📖 Para detalhes completos, consulte [MELHORIAS.md](MELHORIAS.md)
 
 ## ⚖️ Licença
 Este projeto foi desenvolvido para fins de estudo e automação de processos internos.
