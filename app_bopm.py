@@ -7,6 +7,9 @@ from config import Config
 from database import BOPMDatabase
 from ai_service import GeminiAIService
 from validators import BOPMValidator
+from user_settings import settings
+from security import security
+from ui_components import InputFrame, OutputFrame, SearchFrame, SettingsDialog
 
 # --- CONFIGURAÇÃO DE LOGGING ---
 logging.basicConfig(
@@ -19,9 +22,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- CONFIGURAÇÃO INICIAL ---
-ctk.set_appearance_mode(Config.APPEARANCE_MODE)
-ctk.set_default_color_theme(Config.COLOR_THEME)
+ctk.set_appearance_mode(settings.get("appearance", "theme", "dark"))
+ctk.set_default_color_theme(settings.get("appearance", "color_theme", "blue"))
 
 class BOPMBackend:
     """Backend refatorado usando módulos especializados"""
@@ -99,132 +101,86 @@ class App(ctk.CTk):
         super().__init__()
         self.backend = BOPMBackend()
         
-        self.title("Gerador de BOPM - 3° BPM (Refatorado)")
+        self.title("Gerador de BOPM - 3° BPM")
         self.geometry(Config.WINDOW_GEOMETRY)
         
-        # Auto-save timer
         self.autosave_timer = None
-        self.autosave_ativo = False
         self.validation_labels = {}
         
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        self.frame_inputs = ctk.CTkScrollableFrame(self, label_text="Dados da Ocorrência")
-        self.frame_inputs.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        self.frame_inputs.grid_columnconfigure(0, weight=1)
-
-        self.frame_search = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
-        self.frame_search.pack(fill="x", pady=(0, 15))
+        container_left = ctk.CTkScrollableFrame(self, label_text="Dados da Ocorrência")
+        container_left.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
         
-        self.lbl_conexao = ctk.CTkLabel(
-            self.frame_search, 
-            text="🔴 Offline", 
-            font=("Arial", 9),
-            text_color="red",
-            width=80
-        )
+        frame_busca = ctk.CTkFrame(container_left, fg_color="transparent")
+        frame_busca.pack(fill="x", pady=(0, 15))
+        
+        self.lbl_conexao = ctk.CTkLabel(frame_busca, text="🔴 Offline", font=("Arial", 10), width=90)
         self.lbl_conexao.pack(side="left", padx=(0, 5))
         
-        self.entry_search = ctk.CTkEntry(self.frame_search, placeholder_text="Número BOPM")
+        self.entry_search = ctk.CTkEntry(frame_busca, placeholder_text="Número BOPM")
         self.entry_search.pack(side="left", fill="x", expand=True, padx=(0, 5))
         
-        self.btn_search = ctk.CTkButton(self.frame_search, text="🔍 Buscar", width=60, command=self.buscar_no_banco)
-        self.btn_search.pack(side="right")
+        ctk.CTkButton(frame_busca, text="🔍 Buscar", width=80, command=self.buscar_no_banco).pack(side="right")
 
-        self.criar_input("Número do BOPM", "entry_num")
-        self.criar_input("Nome do Infrator", "entry_infrator")
-        self.criar_input("Natureza dos Fatos", "entry_natureza")
+        self.criar_input("Número do BOPM", "entry_num", container_left)
+        self.criar_input("Nome do Infrator", "entry_infrator", container_left)
+        self.criar_input("Natureza dos Fatos", "entry_natureza", container_left)
         
-        ctk.CTkLabel(self.frame_inputs, text="--- Equipe Policial ---", text_color="gray").pack(pady=5)
-        self.criar_input("Motorista", "entry_mot")
-        self.criar_input("Encarregado", "entry_enc")
-        self.criar_input("1º Auxiliar (Opcional)", "entry_aux1")
-        self.criar_input("2º Auxiliar (Opcional)", "entry_aux2")
+        ctk.CTkLabel(container_left, text="--- Equipe Policial ---", text_color="gray").pack(pady=5)
+        self.criar_input("Motorista", "entry_mot", container_left)
+        self.criar_input("Encarregado", "entry_enc", container_left)
+        self.criar_input("1º Auxiliar", "entry_aux1", container_left)
+        self.criar_input("2º Auxiliar", "entry_aux2", container_left)
 
-        ctk.CTkLabel(self.frame_inputs, text="--- Detalhes Finais ---", text_color="gray").pack(pady=5)
-        self.criar_input("Material Apreendido", "entry_mat")
-        self.criar_input("Procedimentos", "entry_proc")
-        self.criar_input("Assinatura", "entry_ass")
+        ctk.CTkLabel(container_left, text="--- Detalhes Finais ---", text_color="gray").pack(pady=5)
+        self.criar_input("Material Apreendido", "entry_mat", container_left)
+        self.criar_input("Procedimentos", "entry_proc", container_left)
+        self.criar_input("Assinatura", "entry_ass", container_left)
 
-        frame_rascunho = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
+        frame_rascunho = ctk.CTkFrame(container_left, fg_color="transparent")
         frame_rascunho.pack(fill="x", pady=(10, 0))
         ctk.CTkLabel(frame_rascunho, text="Rascunho do Relato:", anchor="w").pack(side="left")
         self.lbl_contador = ctk.CTkLabel(frame_rascunho, text="0 caracteres", anchor="e", text_color="gray")
         self.lbl_contador.pack(side="right")
         
-        self.txt_relato = ctk.CTkTextbox(self.frame_inputs, height=150)
+        self.txt_relato = ctk.CTkTextbox(container_left, height=150)
         self.txt_relato.pack(fill="x", pady=5)
         self.txt_relato.bind("<KeyRelease>", self.atualizar_contador_e_autosave)
 
-        self.btn_gerar = ctk.CTkButton(
-            self.frame_inputs, 
-            text="🤖 Gerar IA (Ctrl+G)", 
-            command=self.iniciar_geracao, 
-            height=40, 
-            fg_color="green"
-        )
-        self.btn_gerar.pack(fill="x", pady=20)
+        action_frame = ctk.CTkFrame(container_left, fg_color="transparent")
+        action_frame.pack(fill="x", pady=20)
         
-        # === NOVO: Botão de Histórico ===
-        self.btn_historico = ctk.CTkButton(
-            self.frame_inputs,
-            text="📋 Histórico",
-            command=self.abrir_historico,
-            height=35,
-            fg_color="#9B59B6"
-        )
-        self.btn_historico.pack(fill="x", pady=(0, 10))
+        self.btn_gerar = ctk.CTkButton(action_frame, text="🤖 Gerar IA (Ctrl+G)", command=self.iniciar_geracao, height=40, fg_color="green")
+        self.btn_gerar.pack(fill="x", pady=(0, 5))
         
-        self.btn_ajuda = ctk.CTkButton(
-            self.frame_inputs,
-            text="⌨️ Atalhos (F1)",
-            command=self.mostrar_atalhos,
-            height=30,
-            fg_color="#3498DB"
-        )
-        self.btn_ajuda.pack(fill="x", pady=(0, 10))
+        btn_row = ctk.CTkFrame(action_frame, fg_color="transparent")
+        btn_row.pack(fill="x", pady=5)
+        
+        ctk.CTkButton(btn_row, text="📋 Histórico", command=self.abrir_historico, height=35, fg_color="#9B59B6").pack(side="left", fill="x", expand=True, padx=(0, 5))
+        ctk.CTkButton(btn_row, text="⚙️ Config", command=self.abrir_configuracoes, height=35, fg_color="#34495E").pack(side="left", fill="x", expand=True, padx=(5, 0))
+        
+        ctk.CTkButton(action_frame, text="⌨️ Atalhos (F1)", command=self.mostrar_atalhos, height=30, fg_color="#3498DB").pack(fill="x", pady=(5, 0))
 
-        # --- FRAME DIREITO (Output) ---
-        self.frame_output = ctk.CTkFrame(self)
-        self.frame_output.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
-        self.frame_output.grid_rowconfigure(1, weight=1)
-        self.frame_output.grid_columnconfigure(0, weight=1)
+        container_right = ctk.CTkFrame(self)
+        container_right.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+        container_right.grid_rowconfigure(1, weight=1)
+        container_right.grid_columnconfigure(0, weight=1)
         
-        ctk.CTkLabel(self.frame_output, text="BOPM Final (Editável)", font=("Arial", 16, "bold")).grid(row=0, column=0, pady=10)
+        ctk.CTkLabel(container_right, text="BOPM Final (Editável)", font=("Arial", 16, "bold")).grid(row=0, column=0, pady=10)
         
-        self.txt_output = ctk.CTkTextbox(self.frame_output, font=("Consolas", 12))
+        self.txt_output = ctk.CTkTextbox(container_right, font=("Consolas", 12))
         self.txt_output.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
         
-        # Botões de Ação
-        self.frame_actions = ctk.CTkFrame(self.frame_output, fg_color="transparent")
-        self.frame_actions.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
+        actions = ctk.CTkFrame(container_right, fg_color="transparent")
+        actions.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
         
-        self.btn_salvar_db = ctk.CTkButton(
-            self.frame_actions, 
-            text="💾 Salvar (Ctrl+S)", 
-            command=self.salvar_tudo, 
-            fg_color="#D35400"
-        )
-        self.btn_salvar_db.pack(side="left", expand=True, fill="x", padx=(0, 5))
-
-        self.btn_copiar = ctk.CTkButton(
-            self.frame_actions, 
-            text="📋 Copiar", 
-            command=self.copiar_texto
-        )
-        self.btn_copiar.pack(side="right", fill="x", padx=(5, 0), expand=True)
+        ctk.CTkButton(actions, text="💾 Salvar (Ctrl+S)", command=self.salvar_tudo, fg_color="#D35400").pack(side="left", expand=True, fill="x", padx=(0, 5))
+        ctk.CTkButton(actions, text="🧹 Limpar", command=self.limpar_output, fg_color="gray", width=80).pack(side="right", padx=(5, 0))
+        ctk.CTkButton(actions, text="📋 Copiar", command=self.copiar_texto).pack(side="right", fill="x", padx=(5, 0), expand=True)
         
-        self.btn_limpar_output = ctk.CTkButton(
-            self.frame_actions,
-            text="🧹 Limpar",
-            command=self.limpar_output,
-            fg_color="gray",
-            width=80
-        )
-        self.btn_limpar_output.pack(side="right", padx=(5, 0))
-        
-        self.lbl_status = ctk.CTkLabel(self.frame_output, text="", text_color="gray", font=("Arial", 10))
+        self.lbl_status = ctk.CTkLabel(container_right, text="", text_color="gray", font=("Arial", 10))
         self.lbl_status.grid(row=3, column=0, pady=(0, 5))
         
         self.configurar_atalhos()
@@ -245,9 +201,15 @@ class App(ctk.CTk):
 
     def atualizar_status_conexao(self):
         if self.backend.db.conectado:
-            self.lbl_conexao.configure(text="🟪 MongoDB", text_color="green")
+            self.lbl_conexao.configure(text="🟢 MongoDB", text_color="green")
         else:
             self.lbl_conexao.configure(text="🔴 Offline", text_color="red")
+    
+    def abrir_configuracoes(self):
+        SettingsDialog(self, on_save=self.aplicar_configuracoes)
+    
+    def aplicar_configuracoes(self):
+        self.lbl_status.configure(text="⚙️ Configurações salvas", text_color="#3498DB")
     
     def limpar_output(self):
         self.txt_output.delete("1.0", "end")
@@ -266,8 +228,8 @@ class App(ctk.CTk):
         except Exception as e:
             logger.debug(f"Erro ao carregar últimos BOPMs: {e}")
     
-    def criar_input(self, texto, nome_var):
-        frame = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
+    def criar_input(self, texto, nome_var, parent):
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.pack(fill="x", pady=(5, 0))
         
         label_frame = ctk.CTkFrame(frame, fg_color="transparent")
@@ -278,7 +240,7 @@ class App(ctk.CTk):
         validation_lbl.pack(side="right")
         self.validation_labels[nome_var] = validation_lbl
         
-        entry = ctk.CTkEntry(self.frame_inputs)
+        entry = ctk.CTkEntry(parent)
         entry.pack(fill="x", pady=(0, 5))
         entry.bind("<KeyRelease>", lambda e: self.validar_campo_tempo_real(nome_var))
         setattr(self, nome_var, entry)
@@ -461,21 +423,25 @@ BOPM #{dados['numero']} ({dados['infrator']})
     
     def coletar_inputs(self):
         return {
-            'numero': self.entry_num.get(),
-            'infrator': self.entry_infrator.get(),
-            'natureza': self.entry_natureza.get(),
-            'motorista': self.entry_mot.get(),
-            'encarregado': self.entry_enc.get(),
-            'aux1': self.entry_aux1.get(),
-            'aux2': self.entry_aux2.get(),
-            'material': self.entry_mat.get(),
-            'procedimentos': self.entry_proc.get(),
-            'assinatura': self.entry_ass.get(),
-            'rascunho': self.txt_relato.get("1.0", "end-1c")
+            'numero': security.sanitize_input(self.entry_num.get(), allow_special=False),
+            'infrator': security.sanitize_input(self.entry_infrator.get()),
+            'natureza': security.sanitize_input(self.entry_natureza.get()),
+            'motorista': security.sanitize_input(self.entry_mot.get()),
+            'encarregado': security.sanitize_input(self.entry_enc.get()),
+            'aux1': security.sanitize_input(self.entry_aux1.get()),
+            'aux2': security.sanitize_input(self.entry_aux2.get()),
+            'material': security.sanitize_input(self.entry_mat.get()),
+            'procedimentos': security.sanitize_input(self.entry_proc.get()),
+            'assinatura': security.sanitize_input(self.entry_ass.get()),
+            'rascunho': security.sanitize_input(self.txt_relato.get("1.0", "end-1c"))
         }
 
     def popular_inputs(self, doc):
         """Preenche a tela com dados do Banco"""
+        logger.info(f"Populando inputs com BOPM #{doc.get('numero_bopm', 'N/A')}")
+        logger.info(f"Infrator no doc: {doc.get('infrator', 'VAZIO')}")
+        logger.info(f"Texto_final presente: {bool(doc.get('texto_final', ''))}")
+        
         self.entry_num.delete(0, "end"); self.entry_num.insert(0, doc.get('numero_bopm', ''))
         self.entry_infrator.delete(0, "end"); self.entry_infrator.insert(0, doc.get('infrator', ''))
         self.entry_natureza.delete(0, "end"); self.entry_natureza.insert(0, doc.get('natureza', ''))
@@ -494,7 +460,6 @@ BOPM #{dados['numero']} ({dados['infrator']})
         self.txt_relato.delete("1.0", "end")
         self.txt_relato.insert("1.0", doc.get('rascunho_original', ''))
 
-        # Popula o lado direito com o texto salvo anteriormente (se existir)
         texto_salvo = doc.get('texto_final', '')
         self.txt_output.delete("1.0", "end")
         self.txt_output.insert("1.0", texto_salvo)
@@ -503,7 +468,7 @@ BOPM #{dados['numero']} ({dados['infrator']})
             text=f"✓ BOPM #{doc.get('numero_bopm')} carregado do banco", 
             text_color="#58D68D"
         )
-        logger.info(f"BOPM #{doc.get('numero_bopm')} carregado na interface")
+        logger.info(f"BOPM #{doc.get('numero_bopm')} carregado na interface com sucesso")
     
     # === AUTO-SAVE ===
     def iniciar_autosave_timer(self, event=None):
@@ -673,18 +638,27 @@ BOPM #{dados['numero']} ({dados['infrator']})
         # Lista de BOPMs
         for doc in lista:
             item_frame = ctk.CTkFrame(scroll_frame, fg_color="#34495E")
-            item_frame.pack(fill="x", pady=2)
+            item_frame.pack(fill="x", pady=2, padx=5)
             
             numero = doc.get('numero_bopm', 'N/A')
             infrator = doc.get('infrator', 'N/A')
             natureza = doc.get('natureza', 'N/A')
             data = doc.get('data_atualizacao', datetime.now())
-            data_str = data.strftime("%d/%m/%Y %H:%M") if isinstance(data, datetime) else str(data)
             
-            ctk.CTkLabel(item_frame, text=numero, width=100).pack(side="left", padx=5)
-            ctk.CTkLabel(item_frame, text=infrator[:30], width=200, anchor="w").pack(side="left", padx=5)
-            ctk.CTkLabel(item_frame, text=natureza[:30], width=200, anchor="w").pack(side="left", padx=5)
-            ctk.CTkLabel(item_frame, text=data_str, width=150).pack(side="left", padx=5)
+            if isinstance(data, datetime):
+                data_str = data.strftime("%d/%m/%Y %H:%M")
+            else:
+                data_str = str(data)[:16] if data else "N/A"
+            
+            if infrator and len(infrator) > 25:
+                infrator = infrator[:25] + "..."
+            if natureza and len(natureza) > 25:
+                natureza = natureza[:25] + "..."
+            
+            ctk.CTkLabel(item_frame, text=numero, width=100, anchor="w").pack(side="left", padx=5, pady=8)
+            ctk.CTkLabel(item_frame, text=infrator, width=200, anchor="w").pack(side="left", padx=5, pady=8)
+            ctk.CTkLabel(item_frame, text=natureza, width=200, anchor="w").pack(side="left", padx=5, pady=8)
+            ctk.CTkLabel(item_frame, text=data_str, width=120, anchor="w").pack(side="left", padx=5, pady=8)
             
             # Botão carregar
             btn_carregar = ctk.CTkButton(

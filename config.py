@@ -29,10 +29,15 @@ class Config:
     IA_CANDIDATE_COUNT = 1
     
     # === CACHE ===
-    CACHE_MAX_SIZE = 100  # Número máximo de entradas em cache
+    CACHE_MAX_SIZE = 100
     
     # === AUTO-SAVE ===
-    AUTOSAVE_INTERVAL_MS = 30000  # 30 segundos
+    AUTOSAVE_INTERVAL_MS = 30000
+    
+    # === SEGURANÇA ===
+    ENABLE_ENCRYPTION = False
+    SESSION_TIMEOUT_MINUTES = 30
+    MAX_LOGIN_ATTEMPTS = 5
     
     # === UI ===
     APPEARANCE_MODE = "Dark"

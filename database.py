@@ -10,6 +10,8 @@ import certifi
 
 from config import Config
 from validators import BOPMValidator
+from security import security
+from user_settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +117,6 @@ class BOPMDatabase:
             return False, f"Validação falhou: {msg_validacao}"
         
         try:
-            # 3. Estrutura o documento
             documento = {
                 "numero_bopm": dados_sanitizados['numero'],
                 "infrator": dados_sanitizados['infrator'],
@@ -135,6 +136,10 @@ class BOPMDatabase:
                 "texto_final": texto_final,
                 "data_atualizacao": datetime.now()
             }
+            
+            if settings.get("security", "encrypt_sensitive_data", False):
+                documento["infrator"] = security.encrypt(documento["infrator"])
+                documento["texto_final"] = security.encrypt(documento["texto_final"])
             
             # 4. Upsert (Insert ou Update)
             resultado = self.collection.update_one(
@@ -186,7 +191,23 @@ class BOPMDatabase:
             documento = self.collection.find_one({"numero_bopm": numero_limpo})
             
             if documento:
-                logger.info(f"✓ BOPM #{numero_limpo} encontrado")
+                if "infrator" in documento and documento["infrator"]:
+                    try:
+                        decrypted = security.decrypt(documento["infrator"])
+                        if decrypted:
+                            documento["infrator"] = decrypted
+                    except Exception:
+                        pass
+                
+                if "texto_final" in documento and documento["texto_final"]:
+                    try:
+                        decrypted = security.decrypt(documento["texto_final"])
+                        if decrypted:
+                            documento["texto_final"] = decrypted
+                    except Exception:
+                        pass
+                
+                logger.info(f"✓ BOPM #{numero_limpo} encontrado - Infrator: {documento.get('infrator', 'N/A')[:20]}")
                 return documento, "Encontrado"
             else:
                 logger.info(f"BOPM #{numero_limpo} não encontrado no banco")
@@ -224,6 +245,15 @@ class BOPMDatabase:
             ).sort("data_atualizacao", DESCENDING).limit(limite)
             
             documentos = list(cursor)
+            
+            for doc in documentos:
+                if "infrator" in doc and doc["infrator"]:
+                    try:
+                        decrypted = security.decrypt(doc["infrator"])
+                        if decrypted:
+                            doc["infrator"] = decrypted
+                    except Exception:
+                        pass
             
             logger.info(f"✓ Listados {len(documentos)} BOPMs")
             return documentos, f"{len(documentos)} registros encontrados"

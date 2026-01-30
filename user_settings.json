@@ -1,0 +1,34 @@
+{
+  "appearance": {
+    "theme": "system",
+    "color_theme": "dark-blue",
+    "font_family": "Segoe UI",
+    "font_size": 13
+  },
+  "ai": {
+    "model": "gemini-2.5-flash-latest",
+    "temperature": 0.7,
+    "custom_prompt": ""
+  },
+  "editor": {
+    "auto_save": true,
+    "auto_save_interval": 30,
+    "show_line_numbers": false,
+    "wrap_text": true
+  },
+  "search": {
+    "case_sensitive": false,
+    "regex_enabled": false,
+    "max_results": 100
+  },
+  "security": {
+    "encrypt_sensitive_data": true,
+    "auto_logout": false,
+    "session_timeout": 30
+  },
+  "backup": {
+    "enabled": false,
+    "interval_hours": 24,
+    "max_backups": 7
+  }
+}
